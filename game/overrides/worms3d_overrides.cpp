@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <vector>
 
 namespace
 {
@@ -80,26 +81,37 @@ namespace
     // The game loads each IRX from host0:modules/<lowercase>.irx first, then cdrom0:\MODULES\<UPPER>.IRX.
     // host0: maps to the ELF directory, where the disc's uppercase names never match on a case-sensitive
     // host, so libsd fell back to the runtime's HLE stub, which lacks the IOP exports the real SDRDRV/STREAM
-    // import (first symptom: "unhandled import libsd:4"). game/host0/modules holds lowercase links to the
-    // disc modules so the real LIBSD.IRX loads. $WORMS3D_HOST0 overrides the directory.
+    // import (first symptom: "unhandled import libsd:4"). A host0/modules directory holds lowercase copies of
+    // the disc modules so the real LIBSD.IRX loads: <elf dir>/../host0 in the Windows deploy folder, or
+    // game/host0 in the repo. $WORMS3D_HOST0 overrides both.
     void configureHost0()
     {
         PS2Runtime::IoPaths paths = PS2Runtime::getIoPaths();
 
-        std::filesystem::path host0;
+        std::vector<std::filesystem::path> candidates;
         if (const char *env = std::getenv("WORMS3D_HOST0"); env && env[0] != '\0')
         {
-            host0 = env;
+            candidates.emplace_back(env);
         }
         else
         {
-            host0 = paths.elfDirectory / ".." / "game" / "host0";
+            candidates.push_back(paths.elfDirectory / ".." / "host0");
+            candidates.push_back(paths.elfDirectory / ".." / "game" / "host0");
         }
 
         std::error_code ec;
-        if (!std::filesystem::is_directory(host0, ec))
+        std::filesystem::path host0;
+        for (const auto &candidate : candidates)
         {
-            std::cerr << "[worms3d] host0 directory missing: " << host0.string() << std::endl;
+            if (std::filesystem::is_directory(candidate, ec))
+            {
+                host0 = candidate;
+                break;
+            }
+        }
+        if (host0.empty())
+        {
+            std::cerr << "[worms3d] host0 directory missing: " << candidates.front().string() << std::endl;
             return;
         }
 

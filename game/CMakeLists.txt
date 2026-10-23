@@ -14,6 +14,12 @@ set(PS2X_BUILD_ANALYZER OFF CACHE BOOL "" FORCE)
 set(PS2X_BUILD_TEST OFF CACHE BOOL "" FORCE)
 set(PS2X_BUILD_STUDIO OFF CACHE BOOL "" FORCE)
 
+# The runtime and the generated MMI code use SSSE3/SSE4.1 intrinsics; GCC rejects them at the default
+# x86-64 baseline (MSVC does not gate intrinsics this way). Applies to PS2Recomp's targets too.
+if(NOT MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    add_compile_options(-march=x86-64-v2)
+endif()
+
 # EXCLUDE_FROM_ALL keeps PS2Recomp's placeholder ps2EntryRunner out of the default build;
 # ps2_runtime is still built because worms3d links it.
 add_subdirectory("${PS2RECOMP_DIR}" ps2recomp EXCLUDE_FROM_ALL)
@@ -29,14 +35,23 @@ add_executable(worms3d
 
 target_include_directories(worms3d PRIVATE "${WORMS3D_GENERATED_DIR}")
 target_link_libraries(worms3d PRIVATE ps2_runtime)
-# Boot the disc copy: the runtime maps cdrom0: to the boot ELF's directory.
-# Scoped to main.cpp so changing it doesn't rebuild the generated code.
+# Boot the disc copy: the runtime maps cdrom0: to the boot ELF's directory. Windows builds run from
+# the deploy folder (C:\Users\Dustin\worms3d-recomp, see tools/deploy-win.sh), so use a path relative
+# to the working directory there. Scoped to main.cpp so changing it doesn't rebuild the generated code.
+if(WIN32)
+    set(WORMS3D_DEFAULT_BOOT_ELF "iso/SLUS_208.94")
+else()
+    set(WORMS3D_DEFAULT_BOOT_ELF "${WORMS3D_ROOT}/iso/SLUS_208.94")
+endif()
 set_source_files_properties("${PS2RECOMP_DIR}/ps2xRuntime/src/main.cpp" PROPERTIES
-    COMPILE_DEFINITIONS "PS2X_DEFAULT_BOOT_ELF=\"${WORMS3D_ROOT}/iso/SLUS_208.94\""
+    COMPILE_DEFINITIONS "PS2X_DEFAULT_BOOT_ELF=\"${WORMS3D_DEFAULT_BOOT_ELF}\""
 )
-# Generated MMI code uses SSSE3/SSE4.1 intrinsics; GCC rejects them at the default x86-64 baseline.
-if(NOT MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    target_compile_options(worms3d PRIVATE -march=x86-64-v2)
+if(MINGW)
+    # -O3 over ~97k generated functions costs a lot of build time for little gain; the runtime
+    # library keeps its own release flags. Later -O wins, so this overrides CMAKE_CXX_FLAGS_RELEASE.
+    target_compile_options(worms3d PRIVATE $<$<CONFIG:Release>:-O1>)
+    # Generated code is huge; big-obj avoids "too many sections" in PE/COFF objects.
+    target_compile_options(worms3d PRIVATE -Wa,-mbig-obj)
 endif()
 
 # 93k generated translation units: batch them or the build is dominated by header parsing.

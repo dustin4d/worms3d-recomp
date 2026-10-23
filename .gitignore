@@ -2,3 +2,5 @@ iso/
 elf/
 generated/
 game/build/
+game/build-win/
+game/host0/

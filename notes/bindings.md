@@ -127,5 +127,6 @@ Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap clie
   image. IoPaths::cdImage is set from $WORMS3D_CD_IMAGE or the single *.iso next to the ELF (iso/).
 - host0: the game loads IRXs from host0:modules/<lower>.irx before cdrom0:\MODULES\<UPPER>.IRX. On Linux
   the uppercase disc names never matched, so libsd fell back to the runtime's HLE stub, which lacks the IOP
-  exports SDRDRV/STREAM import ("unhandled import libsd:4"). game/host0/modules has lowercase symlinks to
-  iso/MODULES; hostRoot points there ($WORMS3D_HOST0 overrides). Real LIBSD/SDRDRV/STREAM now load.
+  exports SDRDRV/STREAM import ("unhandled import libsd:4"). game/host0/modules has lowercase copies of
+  iso/MODULES made by tools/setup-host0.sh (copies: Windows cannot follow WSL symlinks); hostRoot points
+  there ($WORMS3D_HOST0 overrides). Real LIBSD/SDRDRV/STREAM now load.
