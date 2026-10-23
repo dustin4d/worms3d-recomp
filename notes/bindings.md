@@ -76,3 +76,13 @@ Undefined code (no function in Ghidra, no xrefs, so likely unused): 0x004ea130 (
 ## Boot log
 - Run 1 (generated from first export, no overrides): no guest output; GameThread spinning in guess__deci2TtyWrite -> Deci2Call(4).
 - Run 2 (+ consoleWrite override): prints "XomHelp::Crc::sCrc ==", "Rebooting IOP..", then hangs in main's sceSifRebootIop/sceSifSyncIop loops (guest SIF code; runtime HLE handlers not yet bound because the names are not exported yet).
+
+## Boundary fixes
+- 2026-10-23: created 3,186 functions headless (tools/ghidra/CreateFunctionsFromList.java over
+  tools/ghidra/missing_vtable_targets.txt). Targets are code addresses referenced from .rodata/.data/.sdata
+  (vtables, function pointers) that started no function and sit right after `jr ra`/nop padding. Found
+  after boot run 3 died on JALR 0x370514 -> 0x37f538 (vtable 0x60b9d8 entries [3] AddRef 0x37f538,
+  [4] Release 0x37f520). 2 skipped (inside existing functions: 0x00332e6c in FUN_00332e18, plus one
+  more). Project backup before the change: C:\Users\Dustin\test-ghidra-backup-20261023.
+- Side effect: FUN_00410748 now ends at 0x4107ac (was 0x41084c); 0x4107ac is a vtable target and its
+  own function. FUN_00410748 still branches to 0x410808 (inside FUN_004107ac). Watch this if it misbehaves.

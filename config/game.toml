@@ -110,12 +110,12 @@ untracked_stubs = [
 skip = []
 
 [ghidra_export]
-function_count = 18939
-code_label_count = 74489
-csv_record_count = 93428
+function_count = 22125
+code_label_count = 74558
+csv_record_count = 96683
 stub_count = 89
 untracked_stub_count = 0
 skip_count = 0
-uncategorized_count = 18850
+uncategorized_count = 22036
 runtime_call_name_count = 656
 runtime_call_source = "embedded_ps2_call_list_snapshot"
