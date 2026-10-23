@@ -66,3 +66,13 @@ Undefined code (no function in Ghidra, no xrefs, so likely unused): 0x004ea130 (
 
 ## libcdvd (starts ~0x004eaf68)
 | 0x004eaff8 | guess_sceCdCallback | no | Swaps callback pointer 0x792340 under DI/EI and returns the old one; FUN_004eb0f0's callback thread calls it with the CD status. |
+
+## Overrides (game/overrides/worms3d_overrides.cpp)
+| Address | Name | Override | Evidence |
+|---|---|---|---|
+| 0x004ed6a8 | guess__consoleWrite | host fwrite to stdout/stderr | (fd, buf, len); only fd 1/2 accepted, else -1; opens the DECI2 TTY once (FUN_004ee6d0) then calls guess__deci2TtyWrite. Only caller of the TTY path. Without the override the first printf hangs (see below). |
+| 0x004ee4b0 | guess__deci2TtyWrite | - (unreachable now) | Copies buf into a packet at 0x20792f4c with \n -> \r\n, Deci2Call(3) send (FUN_004f55f8), then loops Deci2Call(4) poll (FUN_004f5628) until the DECI2 handler clears 0x792f1c. Runtime returns KE_OK for 3/4 and never runs handlers, so this spins forever. |
+
+## Boot log
+- Run 1 (generated from first export, no overrides): no guest output; GameThread spinning in guess__deci2TtyWrite -> Deci2Call(4).
+- Run 2 (+ consoleWrite override): prints "XomHelp::Crc::sCrc ==", "Rebooting IOP..", then hangs in main's sceSifRebootIop/sceSifSyncIop loops (guest SIF code; runtime HLE handlers not yet bound because the names are not exported yet).
