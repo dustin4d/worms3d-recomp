@@ -13,7 +13,7 @@ shift || true
 [[ -f "$deploy/worms3d.exe" ]] || { echo "missing $deploy/worms3d.exe; run tools/deploy-win.sh" >&2; exit 1; }
 
 # Windows processes only see WSL environment variables listed in WSLENV.
-export WSLENV="${WSLENV:+$WSLENV:}WORMS3D_SAMPLE:WORMS3D_GSWATCH:WORMS3D_GSDUMP:WORMS3D_HANDLERS:WORMS3D_CD_IMAGE/p:WORMS3D_HOST0/p"
+export WSLENV="${WSLENV:+$WSLENV:}WORMS3D_SAMPLE:WORMS3D_GSWATCH:WORMS3D_GSDUMP:WORMS3D_HANDLERS:WORMS3D_HEAPCHECK:WORMS3D_CD_IMAGE/p:WORMS3D_HOST0/p"
 
 cd "$deploy"
 ./worms3d.exe "$@" &

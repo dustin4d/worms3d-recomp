@@ -1,0 +1,5 @@
+# libkernl EE-side RPC server functions (evidence in notes/bindings.md)
+0x004f02c0 sceSifSetRpcQueue
+0x004f0358 sceSifRegisterRpc
+0x004f0770 sceSifRpcLoop
+0x004f0428 sceSifRemoveRpc

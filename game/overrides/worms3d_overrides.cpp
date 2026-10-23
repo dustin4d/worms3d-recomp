@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <chrono>
+#include <iomanip>
 #include <iostream>
 #include <array>
 #include <atomic>
@@ -237,9 +238,13 @@ namespace
                 out << "\n  iop cycles=" << std::dec << iop.emulatorCycles << " insns=" << iop.emulatorInstructions
                     << " modules=" << iop.emulatorLoadedModules << " threads=" << iop.emulatorThreads
                     << " rpcServers=" << iop.emulatorRpcServers << " services=" << iop.services.size();
-                for (size_t d = iop.diagnostics.size() > 4 ? iop.diagnostics.size() - 4 : 0; d < iop.diagnostics.size(); ++d)
+                for (const std::string &diag : iop.diagnostics)
                 {
-                    out << "\n  iop diag: " << iop.diagnostics[d];
+                    // Per-thread lines come from the PS2Recomp branch; module load outcomes are noise here.
+                    if (diag.rfind("[IOP thread", 0) == 0)
+                    {
+                        out << "\n  " << diag;
+                    }
                 }
                 out << std::hex;
                 for (const EeSemaphoreSnapshot &s : snap.semaphores)
@@ -585,8 +590,112 @@ namespace
         std::cerr << "[worms3d] handler trace on" << std::endl;
     }
 
+    // Heap check: with $WORMS3D_HEAPCHECK=1, wrap the allocator-object delete path (FUN_00380f90 ->
+    // FUN_00380b68 -> heap free FUN_0038fdc8): before every free, walk both game heaps (0x897378,
+    // 0x897478) and report the first corrupt block; also skip and log frees whose own header is impossible
+    // or 0xDD-filled (they otherwise end in memset(ptr, 0xDD, hdr-8) flooding RAM).
+    PS2Runtime::RecompiledFunction g_origAllocDelete = nullptr;   // FUN_00380f90(allocHolder, ptr)
+    PS2Runtime::RecompiledFunction g_origHeapFreeCheck = nullptr; // FUN_0038fdc8(heap, ptr)
+    uint32_t g_allocDeleteCaller = 0;
+
+    void allocDeleteWrapper(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        g_allocDeleteCaller = getRegU32(ctx, 31);
+        g_origAllocDelete(rdram, ctx, runtime);
+        g_allocDeleteCaller = 0;
+    }
+
+    uint32_t guestU32(const uint8_t *rdram, uint32_t addr)
+    {
+        const uint8_t *p = getConstMemPtr(rdram, addr);
+        return p ? (p[0] | p[1] << 8 | p[2] << 16 | uint32_t(p[3]) << 24) : 0xFFFFFFFFu;
+    }
+
+    // Walks one heap's regions (heap+0xc, linked at +0x4, end at +0x10) and blocks (start at region+0x20;
+    // header at block+4 = size|flags; payload at block+8; next block at block+8+size). Reports the first
+    // block whose header breaks the chain, once per heap, with a dump of the bytes around it.
+    void validateHeap(const uint8_t *rdram, uint32_t heap, uint32_t freeCaller)
+    {
+        static std::map<uint32_t, bool> reported;
+        if (reported[heap])
+            return;
+        uint32_t region = guestU32(rdram, heap + 0xc);
+        for (int r = 0; region != 0 && region < PS2_RAM_SIZE && r < 64; ++r)
+        {
+            const uint32_t end = guestU32(rdram, region + 0x10);
+            uint32_t block = region + 0x20, prev = 0, prevHdr = 0;
+            for (int n = 0; block + 8 <= end && n < 200000; ++n)
+            {
+                const uint32_t hdr = guestU32(rdram, block + 4);
+                const uint32_t size = hdr & ~7u;
+                if (size == 0 || block + 8 + size > end || (size & 7) != 0)
+                {
+                    reported[heap] = true;
+                    std::ostringstream out;
+                    out << std::hex << "[heapcheck] heap 0x" << heap << " region 0x" << region << "-0x" << end
+                        << ": corrupt block 0x" << block << " hdr=0x" << hdr << " (prev block 0x" << prev
+                        << " hdr=0x" << prevHdr << ") detected before free from 0x" << freeCaller << "\n  bytes";
+                    for (uint32_t a = block - 0x20; a < block + 0x20; a += 4)
+                    {
+                        out << (a == block ? " |" : " ") << std::setw(8) << std::setfill('0') << guestU32(rdram, a);
+                    }
+                    std::cerr << out.str() << std::endl;
+                    return;
+                }
+                prev = block;
+                prevHdr = hdr;
+                block += 8 + size;
+            }
+            region = guestU32(rdram, region + 0x4);
+        }
+    }
+
+    void heapFreeCheckWrapper(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t heap = getRegU32(ctx, 4);
+        const uint32_t ptr = getRegU32(ctx, 5);
+        validateHeap(rdram, 0x897378u, g_allocDeleteCaller);
+        validateHeap(rdram, 0x897478u, g_allocDeleteCaller);
+        if (ptr != 0)
+        {
+            const uint32_t hdr = guestU32(rdram, ptr - 4);
+            const uint32_t size = hdr & ~7u;
+            if (size < 8 || size > PS2_RAM_SIZE || (hdr >> 24) == 0xDD)
+            {
+                static int logged = 0;
+                if (logged++ < 16)
+                {
+                    std::cerr << std::hex << "[heapcheck] bad header ptr=0x" << ptr << " hdr=0x" << hdr
+                              << " heap=0x" << heap << " delete caller=0x" << g_allocDeleteCaller << std::dec
+                              << std::endl;
+                }
+                setReturnS32(ctx, -1);
+                return;
+            }
+        }
+        g_origHeapFreeCheck(rdram, ctx, runtime);
+    }
+
+    void startHeapCheck(PS2Runtime &runtime)
+    {
+        const char *env = std::getenv("WORMS3D_HEAPCHECK");
+        if (!env || env[0] == '\0' || env[0] == '0')
+        {
+            return;
+        }
+        g_origAllocDelete = runtime.lookupFunction(0x00380f90u);
+        g_origHeapFreeCheck = runtime.lookupFunction(0x0038fdc8u);
+        if (g_origAllocDelete && g_origHeapFreeCheck)
+        {
+            runtime.replaceFunction(0x00380f90u, allocDeleteWrapper);
+            runtime.replaceFunction(0x0038fdc8u, heapFreeCheckWrapper);
+            std::cerr << "[worms3d] heap check on" << std::endl;
+        }
+    }
+
     void applyWorms3dOverrides(PS2Runtime &runtime)
     {
+        startHeapCheck(runtime);
         startHandlerTrace(runtime);
         startGsDump(runtime);
         startGsWatch(runtime);

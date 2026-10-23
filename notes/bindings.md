@@ -203,3 +203,11 @@ Unnamed: 0x4f1f68 (FILEIO RPC 26, calls sceFsInit), 0x4f2148 (calls sceFsInit), 
   reports the load done. Loading logo stays up. IOP: 7 modules, 12 threads, 9 RPC servers, executing, no
   diagnostics; STREAM.IRX's cdvdman imports are all handled by ps2xIOP. Next: IOP-side visibility (thread
   states, STREAM.IRX import trace, CD reads) to see why the load never completes.
+- EE RPC server names bound (renames_20261023_rpcserver.txt): 0x4f02c0 sceSifSetRpcQueue, 0x4f0358
+  sceSifRegisterRpc (FastLoad thread: sid 0x12344321, func 0x34fe60), 0x4f0770 sceSifRpcLoop, 0x4f0428
+  sceSifRemoveRpc (SOUND_CloseFastLoad prints "sceSifRemoveRPC FAILED" after it). stub_count 115.
+- PS2Recomp branch: IOP->EE RPC implemented. Win run: FastLoad works, load wait passes, then main crashes with
+  heap corruption (memset 0xDD flood). WORMS3D_HEAPCHECK=1 run: bad-header free ptr=0x97bfc0 hdr=0xdde33234
+  heap=0x897438, delete caller 0x3c79bc. (The heap-walk report for 0x897478 is bogus: its region pointer is
+  code, so my assumed heap layout is wrong for that heap.) NEXT: find who frees/overwrites 0x97bfc0 (caller
+  0x3c79bc), check whether the IOP->EE path or the loaded data is involved.

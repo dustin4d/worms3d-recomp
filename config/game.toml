@@ -104,6 +104,10 @@ stubs = [
   "sceSifInitRpc@0x004EF850",
   "sceSifBindRpc@0x004EFEC0",
   "sceSifCallRpc@0x004F0090",
+  "sceSifSetRpcQueue@0x004F02C0",
+  "sceSifRegisterRpc@0x004F0358",
+  "sceSifRemoveRpc@0x004F0428",
+  "sceSifRpcLoop@0x004F0770",
   "sceFsInit@0x004F0E18",
   "sceFsReset@0x004F1070",
   "sceOpen@0x004F10A8",
@@ -135,9 +139,9 @@ skip = []
 function_count = 22125
 code_label_count = 74558
 csv_record_count = 96683
-stub_count = 111
+stub_count = 115
 untracked_stub_count = 0
 skip_count = 0
-uncategorized_count = 22014
+uncategorized_count = 22010
 runtime_call_name_count = 656
 runtime_call_source = "embedded_ps2_call_list_snapshot"
