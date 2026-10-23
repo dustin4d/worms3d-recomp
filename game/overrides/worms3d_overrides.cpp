@@ -9,8 +9,13 @@
 #include <filesystem>
 #include <chrono>
 #include <iostream>
+#include <array>
+#include <atomic>
 #include <map>
+#include <mutex>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -206,7 +211,11 @@ namespace
                         out << " id=" << std::dec << t.waitId << std::hex;
                     }
                     out << " pc=0x" << t.pc << " ra=0x" << t.ra << " sp=0x" << t.sp << " entry=0x" << t.entry
-                        << " prio=" << std::dec << t.currentPriority << std::hex;
+                        << " prio=" << std::dec << t.currentPriority << " inv=" << t.invocationDepth << std::hex;
+                    if (t.invocationDepth != 0)
+                    {
+                        out << " | base pc=0x" << t.basePc << " ra=0x" << t.baseRa << " sp=0x" << t.baseSp;
+                    }
                 }
                 // GS privileged registers (unsynchronized reads; fine for a debug print).
                 const GSRegisters &gs = runtime.memory().gs();
@@ -468,8 +477,107 @@ namespace
         std::cerr << "[worms3d] GS dump after " << delay << " s" << std::endl;
     }
 
+    // Handler trace: with $WORMS3D_HANDLERS=1, log every AddIntcHandler/AddDmacHandler/Enable*/SetAlarm call
+    // (cause/channel, handler, caller) and count calls into FUN_004ee0c0 (the wakeup helper the vsync handler
+    // uses) per caller. Used to find what keeps the main thread's invocation queue full.
+    struct TracedSyscall
+    {
+        uint32_t address;
+        const char *name;
+        PS2Runtime::RecompiledFunction original;
+    };
+    std::array<TracedSyscall, 6> g_tracedSyscalls{{
+        {0x004ecdc0u, "AddIntcHandler", nullptr},
+        {0x004ecdf0u, "AddDmacHandler", nullptr},
+        {0x004ece20u, "EnableIntc", nullptr},
+        {0x004ece40u, "EnableDmac", nullptr},
+        {0x004ece60u, "SetAlarm", nullptr},
+        {0x004ece80u, "iEnableIntc", nullptr},
+    }};
+    PS2Runtime::RecompiledFunction g_origWakeHelper = nullptr;
+    std::mutex g_wakeCountMutex;
+    std::map<uint32_t, uint64_t> g_wakeCountByCaller;
+    std::atomic<uint64_t> g_setAlarmCount{0};
+
+    template <size_t Index>
+    void tracedSyscallWrapper(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const TracedSyscall &sc = g_tracedSyscalls[Index];
+        const uint32_t a0 = getRegU32(ctx, 4), a1 = getRegU32(ctx, 5), a2 = getRegU32(ctx, 6);
+        const uint32_t ra = getRegU32(ctx, 31);
+        sc.original(rdram, ctx, runtime);
+        const bool isAlarm = std::string_view(sc.name) == "SetAlarm";
+        const uint64_t n = isAlarm ? ++g_setAlarmCount : 0;
+        if (!isAlarm || n <= 8 || (n & (n - 1)) == 0)
+        {
+            std::cerr << std::hex << "[handlers] " << sc.name << "(0x" << a0 << ", 0x" << a1 << ", 0x" << a2
+                      << ") = 0x" << getRegU32(ctx, 2) << " ra=0x" << ra << std::dec
+                      << (isAlarm ? " #" + std::to_string(n) : std::string()) << std::endl;
+        }
+    }
+
+    void wakeHelperWrapper(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        {
+            std::lock_guard<std::mutex> lock(g_wakeCountMutex);
+            ++g_wakeCountByCaller[getRegU32(ctx, 31)];
+        }
+        g_origWakeHelper(rdram, ctx, runtime);
+    }
+
+    void startHandlerTrace(PS2Runtime &runtime)
+    {
+        const char *env = std::getenv("WORMS3D_HANDLERS");
+        if (!env || env[0] == '\0' || env[0] == '0')
+        {
+            return;
+        }
+
+        auto wrap = [&runtime](auto indexConstant) {
+            constexpr size_t index = decltype(indexConstant)::value;
+            TracedSyscall &sc = g_tracedSyscalls[index];
+            sc.original = runtime.lookupFunction(sc.address);
+            if (sc.original)
+            {
+                runtime.replaceFunction(sc.address, tracedSyscallWrapper<index>);
+            }
+        };
+        wrap(std::integral_constant<size_t, 0>{});
+        wrap(std::integral_constant<size_t, 1>{});
+        wrap(std::integral_constant<size_t, 2>{});
+        wrap(std::integral_constant<size_t, 3>{});
+        wrap(std::integral_constant<size_t, 4>{});
+        wrap(std::integral_constant<size_t, 5>{});
+
+        g_origWakeHelper = runtime.lookupFunction(0x004ee0c0u);
+        if (g_origWakeHelper)
+        {
+            runtime.replaceFunction(0x004ee0c0u, wakeHelperWrapper);
+        }
+
+        std::thread([]() {
+            for (;;)
+            {
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+                std::ostringstream out;
+                out << "[handlers] 5s: SetAlarm total=" << g_setAlarmCount.load() << "; FUN_004ee0c0 calls by caller:";
+                {
+                    std::lock_guard<std::mutex> lock(g_wakeCountMutex);
+                    for (const auto &[ra, n] : g_wakeCountByCaller)
+                    {
+                        out << std::hex << " 0x" << ra << std::dec << "=" << n;
+                    }
+                    g_wakeCountByCaller.clear();
+                }
+                std::cerr << out.str() << std::endl;
+            }
+        }).detach();
+        std::cerr << "[worms3d] handler trace on" << std::endl;
+    }
+
     void applyWorms3dOverrides(PS2Runtime &runtime)
     {
+        startHandlerTrace(runtime);
         startGsDump(runtime);
         startGsWatch(runtime);
         startSampler(runtime);

@@ -173,3 +173,25 @@ Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap clie
   (screenshots\loading-fixed-28s.png). "3D" (64x64 T8 from 0x3880, uploaded as CT32 64x64) looks right;
   "WORMS" (128x64 T8 from 0x3800, uploaded as CT32 64x32) looks partly scrambled. Suspect PSMT8-over-CT32
   swizzle for that shape; unverified without a hardware reference.
+
+## libkernl FILEIO (applied headless via tools/ghidra/renames_20261023_fileio.txt)
+Found after the loading screen stalled: main's base context (new basePc in the scheduler snapshot) sat in
+FUN_004f0e18's bind loop on SIF RPC 0x80000001 (FILEIO), which the runtime does not serve. Client 0x796000.
+
+| Address | Name | Binds | Evidence |
+|---|---|---|---|
+| 0x004f0e18 | sceFsInit | yes | sceSifInitRpc; adds SIF cmd handlers 0x80000011/0x80000013; binds 0x80000001 in a delay loop; RPC 0xff (init); sets flag 0x5fdc08 = 1. |
+| 0x004f1070 | sceFsReset | yes | Upgraded from guess_: clears the same flag 0x5fdc08 (and 4 bytes at 0x796028) that sceFsInit sets; main calls it after the IOP reboot. |
+| 0x004f10a8 | sceOpen | yes | FILEIO RPC 0 (open); calls sceFsInit when 0x5fdc08 is clear. |
+| 0x004f1330 | sceClose | yes | FILEIO RPC 1. |
+| 0x004f16e8 | sceRead | yes | FILEIO RPC 2. |
+| 0x004f1958 | sceWrite | yes | FILEIO RPC 3. |
+| 0x004f14b0 | sceLseek | yes | FILEIO RPC 4. |
+| 0x004f1c18 | sceIoctl | yes | FILEIO RPC 5; calls sceFsInit. |
+| 0x004f2310 | guess_sceMkdir | no | FILEIO RPC 7; calls sceFsInit (now bound, so no bind hang). |
+Unnamed: 0x4f1f68 (FILEIO RPC 26, calls sceFsInit), 0x4f2148 (calls sceFsInit), 0x4f0fe0.
+
+- VBLANK: one INTC handler, cause 2 (VBLANK start), FUN_0029a5c0 (installed from 0x29ab38): writes DISPFB/
+  DISPLAY/PMODE, wakes the loading thread via FUN_004ee0c0 (iWakeupThread wrapper), bumps a frame counter.
+- PS2Recomp branch commit adds basePc/baseRa/baseSp to EeThreadSnapshot (debug only); the sampler prints them
+  when a thread has queued invocations (WORMS3D_HANDLERS=1 also traces handler/alarm registration).

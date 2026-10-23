@@ -104,6 +104,14 @@ stubs = [
   "sceSifInitRpc@0x004EF850",
   "sceSifBindRpc@0x004EFEC0",
   "sceSifCallRpc@0x004F0090",
+  "sceFsInit@0x004F0E18",
+  "sceFsReset@0x004F1070",
+  "sceOpen@0x004F10A8",
+  "sceClose@0x004F1330",
+  "sceLseek@0x004F14B0",
+  "sceRead@0x004F16E8",
+  "sceWrite@0x004F1958",
+  "sceIoctl@0x004F1C18",
   "sceSifInitIopHeap@0x004F3E48",
   "sceSifAllocIopHeap@0x004F3ED0",
   "sceSifAllocSysMemory@0x004F3F40",
@@ -127,9 +135,9 @@ skip = []
 function_count = 22125
 code_label_count = 74558
 csv_record_count = 96683
-stub_count = 103
+stub_count = 111
 untracked_stub_count = 0
 skip_count = 0
-uncategorized_count = 22022
+uncategorized_count = 22014
 runtime_call_name_count = 656
 runtime_call_source = "embedded_ps2_call_list_snapshot"

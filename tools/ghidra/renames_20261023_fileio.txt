@@ -1,0 +1,10 @@
+# libkernl FILEIO (SIF RPC 0x80000001, client 0x796000) names (evidence in notes/bindings.md)
+0x004f0e18 sceFsInit
+0x004f1070 sceFsReset
+0x004f10a8 sceOpen
+0x004f1330 sceClose
+0x004f16e8 sceRead
+0x004f1958 sceWrite
+0x004f14b0 sceLseek
+0x004f1c18 sceIoctl
+0x004f2310 guess_sceMkdir
