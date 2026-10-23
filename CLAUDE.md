@@ -12,7 +12,7 @@
 - generated/ = ps2_recomp output; never hand-edit, regenerate instead.
 - game/overrides/ = per-game fixes via PS2_REGISTER_GAME_OVERRIDE.
 - tools/ = deploy/run scripts; tools/ghidra/ = headless Ghidra scripts and rename/create lists.
-- PS2Recomp source: ~/src/PS2Recomp (runtime handlers: PS2_SYSCALL_LIST / PS2_STUB_LIST).
+- PS2Recomp source: ~/src/PS2Recomp (runtime handlers: PS2_SYSCALL_LIST / PS2_STUB_LIST). Builds need its local branch worms3d/gif-path2-continuation (runtime fixes not upstream yet; see notes/bindings.md). Run its tests with cmake --build out/build --target ps2x_tests there.
 
 ## Deploy folder (C:\Users\Dustin\worms3d-recomp)
 - worms3d.exe and host0\modules\*.irx (lowercase copies of iso\MODULES) are written by tools/deploy-win.sh.

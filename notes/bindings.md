@@ -164,3 +164,12 @@ Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap clie
   BITBLTBUF/TRXREG/TRXDIR (no TRXPOS), IMAGE tag EOP=1 NLOOP=0x40], REF+DIRECT(0x40 qw CLUT). The second packet
   continues the first GIF packet (texture IMAGE ends without EOP). Suspect PS2Recomp's GIF/VIF1 DIRECT path
   state handling here; investigating it means reading (and likely patching) ~/src/PS2Recomp.
+- PS2Recomp fix (branch worms3d/gif-path2-continuation, commit 6fca20e in ~/src/PS2Recomp): VIF1 now feeds a
+  pending PATH2 IMAGE only from DIRECT payload and parses the REF tag's STCYCL/DIRECT (TTE) first; raw-qword
+  continuation kept as fallback. Regression test added; ps2x_tests 200 passed / 0 failed (199/1 before; the
+  suite's trailing EeScheduler::assertExecutor abort is pre-existing).
+- Win run 9 (patched runtime): CLUT uploads arrive (0x3700, 0x3600 16x16 CT32), both CLUTs populated, buffers
+  ~5.4k lit pixels. First visible graphics: animated Worms 3D loading logo
+  (screenshots\loading-fixed-28s.png). "3D" (64x64 T8 from 0x3880, uploaded as CT32 64x64) looks right;
+  "WORMS" (128x64 T8 from 0x3800, uploaded as CT32 64x32) looks partly scrambled. Suspect PSMT8-over-CT32
+  swizzle for that shape; unverified without a hardware reference.
