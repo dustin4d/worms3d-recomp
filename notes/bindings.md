@@ -86,3 +86,25 @@ Undefined code (no function in Ghidra, no xrefs, so likely unused): 0x004ea130 (
   more). Project backup before the change: C:\Users\Dustin\test-ghidra-backup-20261023.
 - Side effect: FUN_00410748 now ends at 0x4107ac (was 0x41084c); 0x4107ac is a vtable target and its
   own function. FUN_00410748 still branches to 0x410808 (inside FUN_004107ac). Watch this if it misbehaves.
+
+## libcdvd, round 2 (applied headless via tools/ghidra/renames_20261023_libcdvd.txt)
+RPC servers: 0x80000592 init, 0x80000593 S-cmd (client 0x5fd308), 0x80000595 N-cmd (client 0x5fca90),
+0x80000597 search file, 0x8000059A disk ready. Found after boot run 5 hung in FUN_004eb858's
+bind loop on 0x80000595 (runtime has no IOP server for the raw N-cmd bind).
+
+| Address | Name | Binds | Evidence |
+|---|---|---|---|
+| 0x004eb558 | sceCdSearchFile | yes | Binds 0x80000597; "Libcdvd bind err CdSearchFile" (0x6a1518), "ee call cmd search %s", "search name/size/loc lbn". |
+| 0x004ec280 | sceCdRead | yes | N-cmd 0x01 via guess__CdCheckNCmd; "call cdread cmd" (0x6a16a0) / "cdread end" (0x6a16b8). |
+| 0x004eba60 | sceCdSync | yes | "N cmd wait" (0x6a15c8); every N-cmd path and sceCdCallback call it with 1 as a busy check. |
+| 0x004ebb00 | sceCdSyncS | yes | "S cmd wait" (0x6a15d8); same role for S-cmds (sceCdInit, sceCdDiskReady, guess__CdCheckSCmd). |
+| 0x004ec5b0 | sceCdReadClock | yes | S-cmd 0x01; "Libcdvd call Clock read 1/2" (0x6a16c8/0x6a16e8). |
+| 0x004ec460 | sceCdGetError | yes | S-cmd 0x04. S-cmd numbering matches the libcdvd table where 0x01 (ReadClock, string-confirmed) and 0x22 (sceCdMmode) line up. |
+| 0x004ec4f8 | sceCdBreak | yes | S-cmd 0x16, same table. |
+| 0x004eaff8 | sceCdCallback | yes | Upgraded from guess_: swaps callback 0x792340; callback thread FUN_004eb0f0 calls it and prints "sceCdCbfunc= %d sceCdCbfunc_num= %d". |
+| 0x004eb858 | guess__CdCheckNCmd | no | Binds 0x80000595 in a delay loop; "Ncmd fail sema cur_cmd:%d keep_cmd:%d", "Libcdvd bind err N CMD". Callers: sceCdRead, guess_sceCdNcmdDiskReady. |
+| 0x004ebb70 | guess__CdCheckSCmd | no | Binds 0x80000593; "Scmd fail sema", "Libcdvd bind err S cmd". Callers: sceCdMmode, sceCdGetError, sceCdBreak, sceCdReadClock. |
+| 0x004eb9c8 | guess_sceCdNcmdDiskReady | no | N-cmd 0x0E, called first by sceCdRead. Dead once sceCdRead binds. |
+
+Still unnamed in libcdvd: 0x4eb3c0/0x4eb4f0 (remove/add SIF cmd handler 0x80000012, CD callback
+plumbing), 0x4ec6a8-0x4eca80 (no RPC; likely sceCdIntToPos/sceCdPosToInt-style helpers).

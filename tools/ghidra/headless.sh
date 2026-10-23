@@ -2,6 +2,7 @@
 # Run Windows headless Ghidra on the project from WSL. Ghidra must be fully closed (project lock).
 #   tools/ghidra/headless.sh export                  -> read-only export to config/game.toml + functions.csv
 #   tools/ghidra/headless.sh create <list> export    -> create functions from <list> (repo-relative), then export
+#   tools/ghidra/headless.sh rename <list> export    -> rename functions from <list> ("addr name" lines), then export
 # After an export, restore the Linux paths in config/game.toml.
 set -euo pipefail
 
@@ -24,11 +25,12 @@ readonly_flag=-readOnly
 while [[ $# -gt 0 ]]; do
     case "$1" in
         create) scripts+=(-postScript CreateFunctionsFromList.java "$(unc "$2")"); readonly_flag=; shift 2 ;;
+        rename) scripts+=(-postScript RenameFromList.java "$(unc "$2")"); readonly_flag=; shift 2 ;;
         export) scripts+=(-postScript ExportPS2Functions.java "$(unc config/game.toml)" "$(unc config/functions.csv)"); shift ;;
         *) echo "unknown step: $1" >&2; exit 2 ;;
     esac
 done
-[[ ${#scripts[@]} -gt 0 ]] || { echo "usage: $0 [create <list>] export" >&2; exit 2; }
+[[ ${#scripts[@]} -gt 0 ]] || { echo "usage: $0 [create <list>] [rename <list>] export" >&2; exit 2; }
 
 # cmd.exe quoting from bash is fragile; go through a batch file in Windows %TEMP%.
 bat="$WIN_TEMP/worms3d_headless.bat"
@@ -39,4 +41,4 @@ printf '%s\r\n' '@echo off' \
 
 cd /mnt/c/Users/Dustin
 cmd.exe /c 'C:\Users\Dustin\AppData\Local\Temp\worms3d_headless.bat' < /dev/null 2>&1 | tr -d '\r' \
-    | grep -E 'REPORT|CreateFunctionsFromList|ExportPS2Functions|SKIP|ERROR|Exception|Press any key'
+    | grep -E 'REPORT|RenameFromList|RENAME|CreateFunctionsFromList|ExportPS2Functions|SKIP|ERROR|Exception|Press any key'

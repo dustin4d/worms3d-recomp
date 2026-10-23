@@ -1,0 +1,12 @@
+# libcdvd names (evidence in notes/bindings.md)
+0x004eb558 sceCdSearchFile
+0x004ec280 sceCdRead
+0x004eba60 sceCdSync
+0x004ebb00 sceCdSyncS
+0x004ec5b0 sceCdReadClock
+0x004ec460 sceCdGetError
+0x004ec4f8 sceCdBreak
+0x004eaff8 sceCdCallback
+0x004eb858 guess__CdCheckNCmd
+0x004ebb70 guess__CdCheckSCmd
+0x004eb9c8 guess_sceCdNcmdDiskReady
