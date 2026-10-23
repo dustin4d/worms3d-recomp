@@ -14,7 +14,7 @@
 
 ## Tools
 - Ghidra MCP (server "ghidra") is the source of truth for function boundaries and names.
-- Rebuild: ps2_recomp config/game.toml, then cmake --build game/build.
+- Rebuild: (cd config && ps2_recomp game.toml), then cmake --build game/build --target worms3d. ps2_recomp resolves TOML paths against the cwd, so run it from config/.
 - After a re-export from Ghidra, re-fix any Windows paths in config/game.toml.
 
 ## Rules

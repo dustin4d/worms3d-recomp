@@ -8,13 +8,37 @@
 
 [general]
 input = "../elf/SLUS_208.94"
-ghidra_output = "functions.csv"
 output = "../generated"
+ghidra_output = "functions.csv"
 single_file_output = false
 patch_syscalls = false
 patch_cop0 = true
 patch_cache = true
 stubs = [
+  "scePadInit@0x004E9CE8",
+  "scePadEnd@0x004E9EC8",
+  "scePadPortOpen@0x004E9F48",
+  "scePadGetDmaStr@0x004EA1E8",
+  "scePadRead@0x004EA298",
+  "scePadGetState@0x004EA318",
+  "scePadSetReqState@0x004EA3C8",
+  "scePadGetReqState@0x004EA430",
+  "scePadInfoAct@0x004EA4B8",
+  "scePadInfoMode@0x004EA6F8",
+  "scePadSetMainMode@0x004EA830",
+  "scePadSetActDirect@0x004EA8E8",
+  "scePadSetActAlign@0x004EA9A8",
+  "scePadGetButtonMask@0x004EAA80",
+  "scePadSetButtonInfo@0x004EAB38",
+  "scePadInfoPressMode@0x004EABE8",
+  "scePadEnterPressMode@0x004EAC48",
+  "scePadSetVrefParam@0x004EACF8",
+  "scePadGetPortMax@0x004EADC8",
+  "scePadGetSlotMax@0x004EAE30",
+  "scePadGetModVersion@0x004EAE98",
+  "sceCdInit@0x004EBCE0",
+  "sceCdDiskReady@0x004EBFC0",
+  "sceCdMmode@0x004EC1B8",
   "SetGsCrt@0x004ECCE0",
   "AddIntcHandler@0x004ECDC0",
   "RemoveIntcHandler@0x004ECDE0",
@@ -66,6 +90,20 @@ stubs = [
   "Deci2Call@0x004ED510",
   "GetMemorySize@0x004ED540",
   "InitTLB@0x004ED550",
+  "sceSifGetSreg@0x004EF138",
+  "sceSifAddCmdHandler@0x004EF468",
+  "sceSifSendCmd@0x004EF5F8",
+  "sceSifInitRpc@0x004EF850",
+  "sceSifBindRpc@0x004EFEC0",
+  "sceSifCallRpc@0x004F0090",
+  "sceSifLoadModule@0x004F4B48",
+  "sceSifSyncIop@0x004F5010",
+  "sceSifRebootIop@0x004F5048",
+  "memcpy@0x0051499C",
+  "memmove@0x00514A4C",
+  "memset@0x00514B50",
+  "printf@0x00515318",
+  "strncpy@0x00517F98",
 ]
 untracked_stubs = [
 ]
@@ -75,9 +113,9 @@ skip = []
 function_count = 18939
 code_label_count = 74489
 csv_record_count = 93428
-stub_count = 51
+stub_count = 89
 untracked_stub_count = 0
 skip_count = 0
-uncategorized_count = 18888
+uncategorized_count = 18850
 runtime_call_name_count = 656
 runtime_call_source = "embedded_ps2_call_list_snapshot"
