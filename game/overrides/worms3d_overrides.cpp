@@ -232,6 +232,16 @@ namespace
                     << draw.hostPresentationDisplayFbp << " src=0x" << draw.hostPresentationSourceFbp << " "
                     << std::dec << draw.hostPresentationWidth << "x" << draw.hostPresentationHeight
                     << (draw.hasHostPresentationFrame ? "" : " (no frame)") << std::hex;
+                // IOP emulator state: is it still executing, and which modules/RPC servers/threads exist?
+                const ps2x::iop::DebugSnapshot iop = runtime.iopDebugSnapshot();
+                out << "\n  iop cycles=" << std::dec << iop.emulatorCycles << " insns=" << iop.emulatorInstructions
+                    << " modules=" << iop.emulatorLoadedModules << " threads=" << iop.emulatorThreads
+                    << " rpcServers=" << iop.emulatorRpcServers << " services=" << iop.services.size();
+                for (size_t d = iop.diagnostics.size() > 4 ? iop.diagnostics.size() - 4 : 0; d < iop.diagnostics.size(); ++d)
+                {
+                    out << "\n  iop diag: " << iop.diagnostics[d];
+                }
+                out << std::hex;
                 for (const EeSemaphoreSnapshot &s : snap.semaphores)
                 {
                     if (s.waiters != 0)

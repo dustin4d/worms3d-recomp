@@ -195,3 +195,11 @@ Unnamed: 0x4f1f68 (FILEIO RPC 26, calls sceFsInit), 0x4f2148 (calls sceFsInit), 
   DISPLAY/PMODE, wakes the loading thread via FUN_004ee0c0 (iWakeupThread wrapper), bumps a frame counter.
 - PS2Recomp branch commit adds basePc/baseRa/baseSp to EeThreadSnapshot (debug only); the sampler prints them
   when a thread has queued invocations (WORMS3D_HANDLERS=1 also traces handler/alarm registration).
+- Win run 10 (FILEIO bound): main runs game code (inv=0); new EE thread 3 (entry 0x34fd18, prio 2, sleeping in
+  FUN_004f0770) = MultiStream "INTERNAL FastLoad" EE-side RPC server thread. The 0x34b000-0x351000 region is the
+  MultiStream EE library (SOUND_* strings), talking to STREAM.IRX over RPC 0x12345 (client 0x780700).
+  Main sits in FUN_003c90c8: SOUND_AllocateStreamBuffer (0x34c738) + SOUND_LoadFile (0x34be10), then polls
+  FUN_00350188, which copies a status block from 0x5f6340 that the IOP side pushes asynchronously; it never
+  reports the load done. Loading logo stays up. IOP: 7 modules, 12 threads, 9 RPC servers, executing, no
+  diagnostics; STREAM.IRX's cdvdman imports are all handled by ps2xIOP. Next: IOP-side visibility (thread
+  states, STREAM.IRX import trace, CD reads) to see why the load never completes.
