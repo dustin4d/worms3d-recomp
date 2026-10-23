@@ -108,3 +108,24 @@ bind loop on 0x80000595 (runtime has no IOP server for the raw N-cmd bind).
 
 Still unnamed in libcdvd: 0x4eb3c0/0x4eb4f0 (remove/add SIF cmd handler 0x80000012, CD callback
 plumbing), 0x4ec6a8-0x4eca80 (no RPC; likely sceCdIntToPos/sceCdPosToInt-style helpers).
+
+## IOP heap (applied headless via tools/ghidra/renames_20261023_iopheap.txt)
+Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap client 0x7960c0, init flag 0x5fdc1c.
+
+| Address | Name | Binds | Evidence |
+|---|---|---|---|
+| 0x004f3e48 | sceSifInitIopHeap | yes | Binds 0x80000003 (IOP heap server) in a delay loop until client+0x24 is set; clears 0x5fdc1c on success, which the other heap calls check. Game string "Error init \"sceSifInitIopHeap (IOP)\" in XSamplePlayerPS2!". |
+| 0x004f3ed0 | sceSifAllocIopHeap | yes | Heap RPC 1 with the size argument. |
+| 0x004f3fc0 | sceSifFreeIopHeap | yes | Heap RPC 2. |
+| 0x004f4058 | sceSifLoadIopHeap | yes | Heap RPC 3; copies a path into 0x796180. |
+| 0x004f3f40 | sceSifAllocSysMemory | yes | Heap RPC 4 with three arguments packed into 0x796140. |
+| 0x004f4038 | sceSifFreeSysMemory | yes | Wrapper that only calls sceSifFreeIopHeap. |
+| 0x004f4148 | guess__sceSifLoadFileInit | no | Binds 0x80000006 (loadfile server) for the client 0x796480 used by guess__sceSifLoadModuleRpc. |
+
+## Runtime I/O setup (game/overrides/worms3d_overrides.cpp)
+- CD image: the game reads ISO9660 itself (first read: sceCdRead LBN 16 = PVD), so the runtime needs the raw
+  image. IoPaths::cdImage is set from $WORMS3D_CD_IMAGE or the single *.iso next to the ELF (iso/).
+- host0: the game loads IRXs from host0:modules/<lower>.irx before cdrom0:\MODULES\<UPPER>.IRX. On Linux
+  the uppercase disc names never matched, so libsd fell back to the runtime's HLE stub, which lacks the IOP
+  exports SDRDRV/STREAM import ("unhandled import libsd:4"). game/host0/modules has lowercase symlinks to
+  iso/MODULES; hostRoot points there ($WORMS3D_HOST0 overrides). Real LIBSD/SDRDRV/STREAM now load.

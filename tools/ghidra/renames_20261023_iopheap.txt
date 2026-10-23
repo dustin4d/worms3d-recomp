@@ -1,0 +1,8 @@
+# IOP heap (SIF RPC 0x80000003) names (evidence in notes/bindings.md)
+0x004f3e48 sceSifInitIopHeap
+0x004f3ed0 sceSifAllocIopHeap
+0x004f3fc0 sceSifFreeIopHeap
+0x004f4058 sceSifLoadIopHeap
+0x004f3f40 sceSifAllocSysMemory
+0x004f4038 sceSifFreeSysMemory
+0x004f4148 guess__sceSifLoadFileInit
