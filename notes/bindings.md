@@ -1,0 +1,68 @@
+# Bindings and names (SLUS_208.94 only)
+
+Names applied in Ghidra. "Binds" = name exists in PS2Recomp `ps2_call_list.h`, so the runtime
+handler replaces the guest code after re-export. Library versions in the ELF: libkernl 2410,
+libpad 2410, libcdvd/libmc/libsdr/libgraph/libdma/libipu/libscf/libmtap 2400, libmpeg 2300.
+
+| Address | Name | Binds | Evidence |
+|---|---|---|---|
+| 0x004ef850 | sceSifInitRpc | yes | Init-once flag 0x5fdb80; registers SIF cmd handlers 0x80000008/9/A/C; checks sceSifGetReg(0x80000002) then sets it to 1. Called before reboot in main. |
+| 0x004f5048 | sceSifRebootIop | yes | Builds `"rom0:UDNL " + path`; main loops on it with `cdrom0:\MODULES\IOPRP241.IMG;1` (0x653338) after printing "Rebooting IOP..". |
+| 0x004f5010 | sceSifSyncIop | yes | Returns `sceSifGetReg(4) & 0x40000` (SIF_STAT_BOOTEND); main spins on it after the reboot. |
+| 0x004ef138 | sceSifGetSreg | yes | Returns `sreg_table[idx]` (0x793440); called with 0 in sceSifInitRpc's wait loop and guess_InputDeviceMgr_ctor's SIF check ("Failed to init SIF!"). |
+| 0x004f0090 | sceSifCallRpc | yes | 9-arg (client, fno, mode, send, ssize, recv, rsize, end, endparam); sends SIF cmd 0x8000000A; mode&1 = NOWAIT, mode&2 skips D-cache writeback; sema wait. |
+| 0x004efec0 | sceSifBindRpc | yes | `(client 0x780700, 0x12345, 0)` loop in FUN_0034b580 until client+0x24 (server) is set; failure prints "error: sceSifBindRpc" (0x664cc0). |
+| 0x004ef468 | sceSifAddCmdHandler | yes | `(cid, handler, data)` x4 inside sceSifInitRpc. |
+| 0x004ef5f8 | sceSifSendCmd | yes | `(cid, pkt, size, src, dst, len)`; used by sceSifInitRpc and sceSifCallRpc. |
+| 0x004f4b48 | sceSifLoadModule | yes | Called `(path, 0, 0)` with IRX paths, e.g. `cdrom0:\MODULES\SIO2MAN.IRX;1`; `< 0` triggers the cdrom0 fallback path. Tail-calls guess__sceSifLoadModuleRpc. |
+| 0x00515318 | printf | yes | newlib shape: vfprintf(_impure_ptr->stdout, fmt, va); callers pass format strings ("**main** - sbrk(0) = %08x\n"). |
+| 0x004ed7e0 | sbrk | no | Advances heap break 0x5fd3c4, compares to EndOfHeap(), sets errno=12 (ENOMEM) on failure; main prints its result as "sbrk(0)". |
+| 0x004f4920 | guess__sceSifLoadModuleRpc | no | Copies path (0xfc) and args into a 0x200 buffer, sceSifCallRpc on loadfile client 0x796480. |
+| 0x004ef0a8 | guess_scePrintf | no | Varargs printer that swaps the putchar hook 0x5fdb78; used only from libkernl code (sceSifRebootIop error, BindRpc error). |
+| 0x0027fe90 | main | no | Prints "**main** - sbrk(0)", reads PS2.RunFromCdRom / PS2.RebootIOP config, reboots the IOP. `entry` calls it as main(argc @0x6b2900, argv 0x6b2904) after BSS clear, syscalls 0x3C/0x3D and FlushCache(0). |
+| 0x0036dd28 | guess_InputDeviceMgr_ctor | no | Sets vtable 0x60a980, loads sio2man.irx and usbd.irx (host0, then cdrom0 fallback), enumerates 8 devices. |
+| 0x004ebce0 | sceCdInit | yes | Binds RPC 0x80000592 (CD init server); bind failure prints "Libcdvd bind err %d CD_Init %d" (0x6a1628); mode 5 path prints "Libcdvd Exit". Called (0) in main after IOP reboot. |
+| 0x004ebfc0 | sceCdDiskReady | yes | Prints "DiskReady 0"/"DiskReady ended"; binds RPC 0x8000059A, failure prints "Libcdvd bind err CdDiskReady" (0x6a1668). |
+| 0x004ec1b8 | sceCdMmode | yes | S-command RPC 0x22 (SCECdMmode) on client 0x5fd308 with the media arg; main passes the PS2.RunFromCdRom value. |
+| 0x004f1070 | guess_sceFsReset | no | Clears fio flag 0x5fdc08 and 4 bytes at 0x796028; sits in main's post-reboot sequence where SCE samples call sceFsReset. Body too generic to confirm. |
+| 0x00514b50 | memset | yes | (dst, byte, n) returns dst; 16-byte-aligned fast path replicates the byte with PCPYH/PCPYLD, byte tail loop. |
+| 0x0051499c | memcpy | yes | (dst, src, n) returns dst; 32-byte aligned block copy, 8-byte loop, byte tail; no overlap handling. |
+| 0x00514a4c | memmove | yes | Same as memcpy but copies backwards when src < dst < src+n. |
+| 0x00517f98 | strncpy | yes | (dst, src, n) returns dst; word-at-a-time NUL scan (0x0101.../0x8080... trick), zero-pads the rest of n. |
+| 0x004f5528 | guess_exit | no | `entry` passes main's return value to it as the final call. Body not yet checked. |
+
+## libpad 2410 (0x004e9bd0-0x004eaf00)
+All public ones bind. Padman RPC client 0x792080, request buffer 0x7922c0, cmd word first.
+Per-port state at 0x7920d0 + port*0x70 + slot*0x1c; DMA frame struct fields +0x60 len, +0x70 state, +0x71 reqState.
+
+| Address | Name | Binds | Evidence |
+|---|---|---|---|
+| 0x004e9ce8 | scePadInit | yes | Binds RPC 0x80000100 and 0x80000101 (padman); checks scePadGetModVersion()>>8 == 4, else prints "libpad: Module version mismatch" + "[libpad.a = %d.%d, padman.irx = %d.%d]". |
+| 0x004e9f48 | scePadPortOpen | yes | (port, slot, buf): "buffer addr is not 64 byte align" if buf&0x3f, "pad port is already open [%d][%d]"; RPC cmd 0x01. Called from FUN_0036f518. |
+| 0x004e9ec8 | scePadEnd | yes | RPC cmd 0x0F; clears init flag 0x5fb880 on success. |
+| 0x004ea1e8 | scePadGetDmaStr | yes | (port, slot) returns the newer of two 0x80 frames by frame counter (+0x58 vs +0xd8); used by every state accessor. |
+| 0x004ea298 | scePadRead | yes | (port, slot, data) memcpy(data, frame, frame+0x60) and returns the length; 0 if port not open. |
+| 0x004ea318 | scePadGetState | yes | Returns frame+0x70; maps state 6 with reqState 2 to 5; 'c' (0x63) when port closed. |
+| 0x004ea3c8 | scePadSetReqState | yes | Writes frame+0x71; called with 2 (BUSY) after every successful mode RPC. |
+| 0x004ea430 | scePadGetReqState | yes | Returns frame+0x71. |
+| 0x004ea4b8 | scePadInfoAct | yes | (port, slot, actno, term): actuator table at +0x30 + 4*n, count at +0x6a, actno -1 returns count. |
+| 0x004ea6f8 | scePadInfoMode | yes | (port, slot, term, offs): term 1 ID (+0x65>>4, 0xF3 special), 2 EXID, 3 CURINDEX (+0x69), 4 TABLE (+0x68, -1 = count). |
+| 0x004ea830 | scePadSetMainMode | yes | RPC cmd 0x06 (SETMMODE) with (port, slot, mode, lock). |
+| 0x004ea8e8 | scePadSetActDirect | yes | Copies 6 actuator bytes into the DMA struct, sends via guess__scePadSendDma. |
+| 0x004ea9a8 | scePadSetActAlign | yes | RPC cmd 0x08 with 6 alignment bytes. |
+| 0x004eaa80 | scePadGetButtonMask | yes | Assembles 32-bit mask from frame bytes +0x79..+0x7c. |
+| 0x004eab38 | scePadSetButtonInfo | yes | RPC cmd 0x0A (SETBTNINFO). |
+| 0x004eabe8 | scePadInfoPressMode | yes | scePadGetButtonMask() == 0x3ffff. |
+| 0x004eac48 | scePadEnterPressMode | yes | scePadSetButtonInfo(port, slot, 0xfff). |
+| 0x004eacf8 | scePadSetVrefParam | yes | RPC cmd 0x0B (SETVREF), 12-byte param. |
+| 0x004eadc8 | scePadGetPortMax | yes | RPC cmd 0x0C. |
+| 0x004eae30 | scePadGetSlotMax | yes | RPC cmd 0x0D (port). |
+| 0x004eae98 | scePadGetModVersion | yes | RPC cmd 0x12; scePadInit compares its result. |
+| 0x004e9e28 | guess__scePadRpcInit | no | RPC cmd 0x10 (INIT) after clearing 4 port records; only called by scePadInit. |
+| 0x004e9bd0 | guess__scePadSendDma | no | sceSifSetDma of a 0x20-byte block into the double buffer; prints "libpad: sceSifSetDma faild". |
+| 0x004eaf00 | (unnamed) | - | RPC cmd 0x14, one arg. Unidentified. |
+
+Undefined code (no function in Ghidra, no xrefs, so likely unused): 0x004ea130 (prologue + port/slot indexing; probably scePadPortClose, 188 bytes), 0x004eaca0 (`jal scePadSetButtonInfo` with a2=0, so scePadExitPressMode). Needs a function created in Ghidra if anything ever calls them.
+
+## libcdvd (starts ~0x004eaf68)
+| 0x004eaff8 | guess_sceCdCallback | no | Swaps callback pointer 0x792340 under DI/EI and returns the old one; FUN_004eb0f0's callback thread calls it with the CD status. |
