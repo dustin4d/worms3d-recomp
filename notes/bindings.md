@@ -152,3 +152,15 @@ Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap clie
   Presentation reads 0x140 (638x510), which stays black: the game draws 32-bit at 0xa0 and displays 16-bit at
   0x140, and its conversion pass does not match the runtime's display-copy heuristic (gs_frontend.cpp: needs
   context 2, ALPHA 0x64, FIX 0x60/0x80, full-screen textured sprite). Next: capture the draws that target 0x140.
+- Win runs 4-8 (WORMS3D_GSWATCH / WORMS3D_GSDUMP): the 32->16 conversion is a row of 16-px ctx2 sprites,
+  FRAME 0x140 PSMCT16S, TEX0 0x1400 (= FBP 0xa0) PSMCT32, TFX modulate, ALPHA 0x29 FIX 0 (= Cs, plain copy).
+  Per frame: copy strips -> clear strips into 0xa0 (Z=0, ZBUF block 0 PSMZ32) -> loading sprites -> uploads.
+  Both buffers dump fully black. Loading sprites (FUN_002990c0): 128x64 T8 tex 0x3800 CLUT 0x3700 and
+  128x128 T8 tex 0x3880 CLUT 0x3600, z 0..100 vs Z buffer 0 with ZTST GEQUAL (passes). Texture data is in VRAM;
+  both CLUTs are all zero, so every texel is black. Over the whole boot the GS only ever receives two transfers
+  (0x3800 64x32 CT32, 0x3880 64x64 CT32); the CLUT uploads never arrive (no TRXDIR write recorded).
+  FUN_00298b28(tex, clut, tbp, cbp, w, h) builds a VIF1 chain per texture: CNT + DIRECT(6) [A+D NREG=4
+  BITBLTBUF/TRXPOS/TRXREG/TRXDIR, IMAGE tag EOP=0], REF+DIRECT(texture), CNT + DIRECT(5) [A+D NREG=3
+  BITBLTBUF/TRXREG/TRXDIR (no TRXPOS), IMAGE tag EOP=1 NLOOP=0x40], REF+DIRECT(0x40 qw CLUT). The second packet
+  continues the first GIF packet (texture IMAGE ends without EOP). Suspect PS2Recomp's GIF/VIF1 DIRECT path
+  state handling here; investigating it means reading (and likely patching) ~/src/PS2Recomp.

@@ -9,12 +9,16 @@
 #include <filesystem>
 #include <chrono>
 #include <iostream>
+#include <map>
+#include <string>
 #include <sstream>
 #include <thread>
 #include <vector>
 
 #include "runtime/ee_scheduler.h"
 #include "runtime/gs/gs_frontend.h"
+
+#include "raylib.h"
 
 namespace
 {
@@ -234,8 +238,240 @@ namespace
         std::cerr << "[worms3d] sampler every " << interval << " s" << std::endl;
     }
 
+    // GS state watcher: with $WORMS3D_GSWATCH=<seconds>, poll the GS debug snapshot as fast as the host allows
+    // and count each distinct draw/transfer state. States that touch the display buffer (DISPFB FBP 0x140 =
+    // block 0x2800) or read the 32-bit draw buffer (FRAME FBP 0xa0 = block 0x1400) are printed when first seen;
+    // a summary of the most common states is printed when the window ends. Used to find the game's
+    // 32-bit -> 16-bit display conversion pass.
+    void startGsWatch(PS2Runtime &runtime)
+    {
+        const char *env = std::getenv("WORMS3D_GSWATCH");
+        const double seconds = env ? std::atof(env) : 0.0;
+        if (seconds <= 0.0)
+        {
+            return;
+        }
+
+        std::thread([&runtime, seconds]() {
+            constexpr uint32_t kDisplayFbp = 0x140, kDisplayBlock = 0x140 * 32, kDrawBlock = 0xa0 * 32;
+            std::map<std::string, uint64_t> counts;
+            uint64_t polls = 0;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
+            while (std::chrono::steady_clock::now() < end)
+            {
+                const GSDebugSnapshot s = runtime.gs().getDebugSnapshot();
+                const GSContext &c = s.ctx[s.prim.ctxt ? 1 : 0];
+                std::ostringstream key;
+                key << std::hex << "ctx" << (s.prim.ctxt ? 2 : 1) << " frame=0x" << c.frame.fbp << "/w" << std::dec
+                    << c.frame.fbw << "/psm" << std::hex << uint32_t(c.frame.psm) << " msk=0x" << c.frame.fbmsk
+                    << " prim=" << std::dec << uint32_t(s.prim.type) << (s.prim.tme ? " tme" : "")
+                    << (s.prim.abe ? " abe" : "") << (s.prim.fst ? " fst" : "") << (s.prim.iip ? " iip" : "")
+                    << std::hex << " tex0=0x" << c.tex0.tbp0 << "/w" << std::dec << uint32_t(c.tex0.tbw) << "/psm"
+                    << std::hex << uint32_t(c.tex0.psm) << " tfx=" << uint32_t(c.tex0.tfx) << " alpha=0x" << c.alpha
+                    << " test=0x" << c.test << " ofs=" << std::dec << (c.xyoffset.ofx >> 4) << ","
+                    << (c.xyoffset.ofy >> 4) << " sc=" << c.scissor.x0 << "-" << c.scissor.x1 << ","
+                    << c.scissor.y0 << "-" << c.scissor.y1 << std::hex << " | blt 0x" << s.bitbltbuf.sbp << "/psm"
+                    << uint32_t(s.bitbltbuf.spsm) << "->0x" << s.bitbltbuf.dbp << "/psm" << uint32_t(s.bitbltbuf.dpsm)
+                    << " dir=" << s.trxdir;
+                const std::string k = key.str();
+                const bool touchesDisplay = c.frame.fbp == kDisplayFbp || c.tex0.tbp0 == kDisplayBlock ||
+                                            c.tex0.tbp0 == kDrawBlock || s.bitbltbuf.dbp == kDisplayBlock ||
+                                            s.bitbltbuf.sbp == kDrawBlock;
+                if (counts[k]++ == 0 && touchesDisplay)
+                {
+                    std::cerr << "[gswatch] display-related state: " << k << std::endl;
+                }
+                ++polls;
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+            }
+
+            std::vector<std::pair<uint64_t, std::string>> sorted;
+            for (const auto &[k, n] : counts)
+            {
+                sorted.emplace_back(n, k);
+            }
+            std::sort(sorted.rbegin(), sorted.rend());
+            std::cerr << "[gswatch] " << polls << " polls, " << counts.size() << " distinct states; most common:" << std::endl;
+            for (size_t i = 0; i < sorted.size() && i < 25; ++i)
+            {
+                std::cerr << "  " << sorted[i].first << "x  " << sorted[i].second << std::endl;
+            }
+        }).detach();
+        std::cerr << "[worms3d] GS watch for " << seconds << " s" << std::endl;
+    }
+
+    // GS dump: with $WORMS3D_GSDUMP=<seconds>, once, after that delay: print the GS debug history (last 512
+    // events) for draws/transfers involving the display or draw buffer, then save both buffers as PNGs in
+    // <elf dir>/../screenshots (the deploy folder): FBP 0xa0 PSMCT32 (where the game draws) and FBP 0x140
+    // PSMCT16S (what is displayed).
+    void savePsmImage(PS2Runtime &runtime, uint32_t psm, uint32_t fbp, const std::filesystem::path &path)
+    {
+        constexpr int kWidth = 640, kHeight = 448;
+        std::vector<uint8_t> rgba(kWidth * kHeight * 4);
+        uint32_t nonBlack = 0;
+        for (int y = 0; y < kHeight; ++y)
+        {
+            for (int x = 0; x < kWidth; ++x)
+            {
+                const uint32_t v = runtime.gs().ReadVram(psm, fbp * 32, kWidth / 64, x, y);
+                uint8_t *px = &rgba[(y * kWidth + x) * 4];
+                if (psm == 0x00)
+                {
+                    px[0] = v & 0xff; px[1] = (v >> 8) & 0xff; px[2] = (v >> 16) & 0xff;
+                }
+                else
+                {
+                    px[0] = (v & 0x1f) << 3; px[1] = ((v >> 5) & 0x1f) << 3; px[2] = ((v >> 10) & 0x1f) << 3;
+                }
+                px[3] = 0xff;
+                nonBlack += (px[0] | px[1] | px[2]) != 0;
+            }
+        }
+        Image img{rgba.data(), kWidth, kHeight, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+        ExportImage(img, path.string().c_str());
+        std::cerr << std::dec << "[gsdump] fbp=0x" << std::hex << fbp << " psm=0x" << psm << std::dec << ": "
+                  << nonBlack << "/" << kWidth * kHeight << " non-black pixels -> " << path.string() << std::endl;
+    }
+
+    // 8-bit indexed texture (PSMT8) as greyscale indices, to see whether texture data arrived in VRAM.
+    void saveT8Indices(PS2Runtime &runtime, uint32_t block, uint32_t bw, int w, int h, const std::filesystem::path &path)
+    {
+        std::vector<uint8_t> rgba(w * h * 4);
+        uint32_t nonZero = 0;
+        for (int y = 0; y < h; ++y)
+        {
+            for (int x = 0; x < w; ++x)
+            {
+                const uint8_t v = static_cast<uint8_t>(runtime.gs().ReadVram(0x13, block, bw, x, y));
+                uint8_t *px = &rgba[(y * w + x) * 4];
+                px[0] = px[1] = px[2] = v;
+                px[3] = 0xff;
+                nonZero += v != 0;
+            }
+        }
+        Image img{rgba.data(), w, h, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+        ExportImage(img, path.string().c_str());
+        std::cerr << "[gsdump] T8 block=0x" << std::hex << block << std::dec << ": " << nonZero << "/" << w * h
+                  << " non-zero indices -> " << path.string() << std::endl;
+    }
+
+    void startGsDump(PS2Runtime &runtime)
+    {
+        const char *env = std::getenv("WORMS3D_GSDUMP");
+        const double delay = env ? std::atof(env) : 0.0;
+        if (delay <= 0.0)
+        {
+            return;
+        }
+        // History recording starts paused (only the debug panel enables it).
+        runtime.gs().setDebugHistoryPaused(false);
+
+        std::thread([&runtime, delay]() {
+            // Until the dump, poll the 512-entry history every 2 ms and log each distinct transfer destination
+            // (first seen + count), so uploads made once at startup (e.g. CLUTs) are not lost.
+            std::map<std::string, std::pair<uint64_t, uint64_t>> transfers; // key -> (first seq, count)
+            uint64_t lastSeq = 0;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double>(delay);
+            while (std::chrono::steady_clock::now() < end)
+            {
+                for (const GSDebugHistoryEntry &e : runtime.gs().getDebugHistory())
+                {
+                    if (e.seq <= lastSeq)
+                    {
+                        continue;
+                    }
+                    lastSeq = e.seq;
+                    if (e.kind != GSDebugEventKind::Transfer)
+                    {
+                        continue;
+                    }
+                    std::ostringstream key;
+                    key << std::hex << "0x" << e.bitbltbuf.sbp << "/psm" << uint32_t(e.bitbltbuf.spsm) << " -> 0x"
+                        << e.bitbltbuf.dbp << "/w" << std::dec << uint32_t(e.bitbltbuf.dbw) << "/psm" << std::hex
+                        << uint32_t(e.bitbltbuf.dpsm) << " dir=" << e.trxdir << std::dec << " pixels=" << e.transferPixels
+                        << " pos=" << e.trxpos.dsax << "," << e.trxpos.dsay << " size=" << e.trxreg.rrw << "x"
+                        << e.trxreg.rrh;
+                    auto [it, inserted] = transfers.try_emplace(key.str(), e.seq, 0);
+                    ++it->second.second;
+                    if (inserted)
+                    {
+                        std::cerr << "[gsdump] new transfer #" << e.seq << " vsync=" << e.vsyncTick << ": " << key.str() << std::endl;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+
+            runtime.gs().setDebugHistoryPaused(true);
+            const std::vector<GSDebugHistoryEntry> history = runtime.gs().getDebugHistory();
+            runtime.gs().setDebugHistoryPaused(false);
+
+            std::cerr << "[gsdump] " << history.size() << " history events; draws/transfers touching 0xa0/0x140:" << std::endl;
+            for (const GSDebugHistoryEntry &e : history)
+            {
+                const bool draw = e.kind == GSDebugEventKind::Draw;
+                const bool transfer = e.kind == GSDebugEventKind::Transfer;
+                const bool relevant = draw || transfer;
+                if (!relevant)
+                {
+                    continue;
+                }
+                std::ostringstream out;
+                out << std::hex << "  #" << std::dec << e.seq << " vsync=" << e.vsyncTick << std::hex;
+                if (draw)
+                {
+                    out << " DRAW frame=0x" << e.frame.fbp << "/psm" << uint32_t(e.frame.psm) << " msk=0x" << e.frame.fbmsk
+                        << " prim=" << std::dec << uint32_t(e.prim.type) << (e.prim.tme ? " tme" : "")
+                        << (e.prim.abe ? " abe" : "") << (e.prim.fst ? " fst" : "") << (e.prim.ctxt ? " ctx2" : "")
+                        << std::hex << " tex0=0x" << e.tex0.tbp0 << "/psm" << uint32_t(e.tex0.psm) << " tfx="
+                        << uint32_t(e.tex0.tfx) << " tcc=" << uint32_t(e.tex0.tcc) << " cbp=0x" << e.tex0.cbp << "/cpsm"
+                        << uint32_t(e.tex0.cpsm) << " alpha=0x" << e.alpha
+                        << " test=0x" << e.test << " zbuf=0x" << e.zbuf.zbp << "/psm" << uint32_t(e.zbuf.psm)
+                        << (e.zbuf.zmask ? "/zmsk" : "") << std::dec << " z=" << e.zMin << ".." << e.zMax
+                        << " verts=" << e.vertexCount << " x=" << e.xMin << ".."
+                        << e.xMax << " y=" << e.yMin << ".." << e.yMax << " a=" << uint32_t(e.aMin) << ".."
+                        << uint32_t(e.aMax);
+                }
+                else
+                {
+                    out << " XFER 0x" << e.bitbltbuf.sbp << "/psm" << uint32_t(e.bitbltbuf.spsm) << " -> 0x"
+                        << e.bitbltbuf.dbp << "/psm" << uint32_t(e.bitbltbuf.dpsm) << " dir=" << e.trxdir << std::dec
+                        << " pixels=" << e.transferPixels;
+                }
+                std::cerr << out.str() << std::endl;
+            }
+
+            const std::filesystem::path dir = PS2Runtime::getIoPaths().elfDirectory / ".." / "screenshots";
+            std::error_code ec;
+            std::filesystem::create_directories(dir, ec);
+            savePsmImage(runtime, 0x00, 0xa0, dir / "gs-fbp0a0-ct32.png");
+            savePsmImage(runtime, 0x0A, 0x140, dir / "gs-fbp140-ct16s.png");
+            saveT8Indices(runtime, 0x3880, 2, 128, 128, dir / "gs-tex3880-t8.png");
+            // CLUTs used by the loading sprites (CSM1 CT32 layout: 16x16 entries, block width 1).
+            for (const uint32_t cbp : {0x3600u, 0x3700u})
+            {
+                uint32_t nonZero = 0;
+                std::ostringstream first;
+                for (int i = 0; i < 256; ++i)
+                {
+                    const uint32_t v = runtime.gs().ReadVram(0x00, cbp, 1, i % 16, i / 16);
+                    nonZero += v != 0;
+                    if (i < 6)
+                    {
+                        first << " 0x" << std::hex << v;
+                    }
+                }
+                std::cerr << "[gsdump] CLUT block=0x" << std::hex << cbp << std::dec << ": " << nonZero
+                          << "/256 non-zero entries; first:" << first.str() << std::endl;
+            }
+            saveT8Indices(runtime, 0x3800, 2, 128, 128, dir / "gs-tex3800-t8.png");
+        }).detach();
+        std::cerr << "[worms3d] GS dump after " << delay << " s" << std::endl;
+    }
+
     void applyWorms3dOverrides(PS2Runtime &runtime)
     {
+        startGsDump(runtime);
+        startGsWatch(runtime);
         startSampler(runtime);
         reserveMainThreadStack(runtime);
         runtime.replaceFunction(0x004ed6a8u, consoleWrite);
