@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the deployed Windows build natively on Windows (never under WSLg). Deploy first: tools/deploy-win.sh
 #   tools/run-win.sh [seconds] [extra args...]   default 90 s; 0 = no time limit
+#   WORMS3D_SAMPLE=5 tools/run-win.sh 60          print the EE thread sampler every 5 s
 # Runs from C:\Users\Dustin\worms3d-recomp, so the exe's default boot path iso\SLUS_208.94 resolves.
 # Console output comes back on this script's stdout/stderr.
 set -uo pipefail
@@ -10,6 +11,9 @@ limit="${1:-90}"
 shift || true
 
 [[ -f "$deploy/worms3d.exe" ]] || { echo "missing $deploy/worms3d.exe; run tools/deploy-win.sh" >&2; exit 1; }
+
+# Windows processes only see WSL environment variables listed in WSLENV.
+export WSLENV="${WSLENV:+$WSLENV:}WORMS3D_SAMPLE:WORMS3D_CD_IMAGE/p:WORMS3D_HOST0/p"
 
 cd "$deploy"
 ./worms3d.exe "$@" &

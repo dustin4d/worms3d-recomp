@@ -143,3 +143,12 @@ Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap clie
 - Win run 1: modules load, then memset(ptr, 0xDD, 0xFFFFFFFC) and a jump to 0xDDDDDDDD (stack collision above).
 - Win run 2 (stack fix): no errors for 75+ s; window "PS2-Recomp | SLUS_208.94" stays black
   (screenshot: C:\Users\Dustin\worms3d-recomp\screenshots\boot-45s.png). Next: find what the EE is doing.
+- Win run 3 (WORMS3D_SAMPLE sampler): EE ~115M cycles/s (~40% of 294 MHz), vsync ~23/s.
+  Thread 1 (main) mostly inside an interrupt invocation at FUN_004ee0c0 (syscall -0x2f, then iWakeupThread
+  stub 0x4ed020); thread 2 (entry FUN_002990c0, prio 8) wakes per vsync and draws two sprites from VRAM
+  0x3800/0x3700 and 0x3880/0x3600 around (300, 260): the loading animation.
+  GS: PMODE 0x8023 (both circuits, ALP 0x80); DISPFB1/2 FBP 0x140 FBW 10 PSM 0xA (PSMCT16S), circuit 2 offset
+  DBX=DBY=1. Draw context FRAME FBP 0xa0 FBW 10 PSM 0x0 (PSMCT32), PRIM sprite, last BITBLT DBP 0x3880.
+  Presentation reads 0x140 (638x510), which stays black: the game draws 32-bit at 0xa0 and displays 16-bit at
+  0x140, and its conversion pass does not match the runtime's display-copy heuristic (gs_frontend.cpp: needs
+  context 2, ALPHA 0x64, FIX 0x60/0x80, full-screen textured sprite). Next: capture the draws that target 0x140.

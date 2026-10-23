@@ -7,8 +7,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <chrono>
 #include <iostream>
+#include <sstream>
+#include <thread>
 #include <vector>
+
+#include "runtime/ee_scheduler.h"
+#include "runtime/gs/gs_frontend.h"
 
 namespace
 {
@@ -135,8 +141,102 @@ namespace
         }
     }
 
+    // Debug sampler: with $WORMS3D_SAMPLE=<seconds>, a host thread prints the EE scheduler snapshot (every
+    // guest thread's state, wait reason and pc/ra/sp) at that interval. There is no debugger for the Windows
+    // build, so this is how we see where the game sits. An unchanged snapshot sequence means no scheduler event
+    // happened in between (a guest busy loop).
+    const char *threadStatusName(EeThreadStatus status)
+    {
+        switch (status)
+        {
+        case EeThreadStatus::Running: return "run";
+        case EeThreadStatus::Ready: return "ready";
+        case EeThreadStatus::Waiting: return "wait";
+        case EeThreadStatus::WaitingSuspended: return "wait+susp";
+        case EeThreadStatus::Suspended: return "susp";
+        case EeThreadStatus::Dormant: return "dormant";
+        }
+        return "?";
+    }
+
+    const char *waitReasonName(EeWaitReason reason)
+    {
+        switch (reason)
+        {
+        case EeWaitReason::None: return "";
+        case EeWaitReason::Sleep: return " sleep";
+        case EeWaitReason::Semaphore: return " sema";
+        case EeWaitReason::EventFlag: return " evf";
+        case EeWaitReason::VSync: return " vsync";
+        case EeWaitReason::External: return " ext";
+        case EeWaitReason::Mpeg: return " mpeg";
+        }
+        return " ?";
+    }
+
+    void startSampler(PS2Runtime &runtime)
+    {
+        const char *env = std::getenv("WORMS3D_SAMPLE");
+        const double interval = env ? std::atof(env) : 0.0;
+        if (interval <= 0.0)
+        {
+            return;
+        }
+
+        std::thread([&runtime, interval]() {
+            uint64_t lastSequence = 0;
+            for (int n = 1;; ++n)
+            {
+                std::this_thread::sleep_for(std::chrono::duration<double>(interval));
+                const EeKernelSnapshot snap = runtime.eeScheduler().snapshot();
+
+                std::ostringstream out;
+                out << "[sample " << n << "] seq=" << snap.sequence << (snap.sequence == lastSequence ? " (unchanged)" : "")
+                    << " eeCycle=" << snap.eeCycle << " running=" << snap.runningThreadId << std::hex;
+                for (const EeThreadSnapshot &t : snap.threads)
+                {
+                    out << "\n  thread " << std::dec << t.id << std::hex << " " << threadStatusName(t.status)
+                        << waitReasonName(t.waitReason);
+                    if (t.waitReason != EeWaitReason::None)
+                    {
+                        out << " id=" << std::dec << t.waitId << std::hex;
+                    }
+                    out << " pc=0x" << t.pc << " ra=0x" << t.ra << " sp=0x" << t.sp << " entry=0x" << t.entry
+                        << " prio=" << std::dec << t.currentPriority << std::hex;
+                }
+                // GS privileged registers (unsynchronized reads; fine for a debug print).
+                const GSRegisters &gs = runtime.memory().gs();
+                out << "\n  gs pmode=0x" << gs.pmode << " dispfb1=0x" << gs.dispfb1 << " display1=0x" << gs.display1
+                    << " dispfb2=0x" << gs.dispfb2 << " display2=0x" << gs.display2 << " bgcolor=0x" << gs.bgcolor
+                    << " csr=0x" << gs.csr.load(std::memory_order_relaxed) << " vsync=" << std::dec
+                    << gs.vsyncTick.load(std::memory_order_relaxed) << std::hex;
+                // GS drawing state: where the game draws vs. what gets presented.
+                const GSDebugSnapshot draw = runtime.gs().getDebugSnapshot();
+                out << "\n  draw ctx1 fbp=0x" << draw.ctx[0].frame.fbp << " fbw=" << std::dec << draw.ctx[0].frame.fbw
+                    << " psm=0x" << std::hex << uint32_t(draw.ctx[0].frame.psm) << " | ctx2 fbp=0x" << draw.ctx[1].frame.fbp
+                    << " psm=0x" << uint32_t(draw.ctx[1].frame.psm) << " | prim=" << std::dec << uint32_t(draw.prim.type)
+                    << " | bitblt dbp=0x" << std::hex << draw.bitbltbuf.dbp << " | present fbp=0x"
+                    << draw.hostPresentationDisplayFbp << " src=0x" << draw.hostPresentationSourceFbp << " "
+                    << std::dec << draw.hostPresentationWidth << "x" << draw.hostPresentationHeight
+                    << (draw.hasHostPresentationFrame ? "" : " (no frame)") << std::hex;
+                for (const EeSemaphoreSnapshot &s : snap.semaphores)
+                {
+                    if (s.waiters != 0)
+                    {
+                        out << "\n  sema " << std::dec << s.id << " count=" << s.count << "/" << s.maxCount
+                            << " waiters=" << s.waiters << std::hex;
+                    }
+                }
+                std::cerr << out.str() << std::endl;
+                lastSequence = snap.sequence;
+            }
+        }).detach();
+        std::cerr << "[worms3d] sampler every " << interval << " s" << std::endl;
+    }
+
     void applyWorms3dOverrides(PS2Runtime &runtime)
     {
+        startSampler(runtime);
         reserveMainThreadStack(runtime);
         runtime.replaceFunction(0x004ed6a8u, consoleWrite);
         configureCdImage();

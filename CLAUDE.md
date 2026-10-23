@@ -26,6 +26,7 @@
 3. Regenerate: (cd config && ps2_recomp game.toml). It resolves TOML paths against the cwd, so run it from config/. Clear generated/ first when names change.
 4. Build for Windows: cmake --build game/build-win --target worms3d (mingw-w64 cross-compile; configure with -DCMAKE_TOOLCHAIN_FILE=$PWD/game/cmake/mingw-w64-x86_64.cmake, see that file).
 5. Deploy: tools/deploy-win.sh. Run: tools/run-win.sh [seconds] (native Windows process; console output comes back to WSL). While it runs, tools/screenshot-win.sh [name] saves the game window to screenshots\ in the deploy folder.
+- WORMS3D_SAMPLE=<seconds> tools/run-win.sh ... prints EE thread states (pc/ra/sp, waits), GS display registers and draw targets periodically.
 - game/build (Linux) exists only for gdb debugging; it needs tools/setup-host0.sh and is never run under WSLg without asking.
 
 ## Tools
