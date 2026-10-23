@@ -18,14 +18,14 @@
 - worms3d.exe and host0\modules\*.irx (lowercase copies of iso\MODULES) are written by tools/deploy-win.sh.
 - iso\ (extracted disc, SLUS_208.94, raw "Worms 3D (USA) (En,Fr).iso") is user-provided; never write to it.
 - SLUS_208.94 and worms3d-config at the top level belong to Ghidra's import; leave them alone.
-- tools\headless.bat is written by tools/ghidra/headless.sh.
+- tools\headless.bat (tools/ghidra/headless.sh), tools\screenshot-win.ps1 and screenshots\ (tools/screenshot-win.sh) are also ours.
 
 ## Iteration loop
 1. Name/fix in Ghidra (MCP while it is open; tools/ghidra/headless.sh rename|create ... export while it is fully closed).
 2. After an export, re-fix the Windows paths in config/game.toml.
 3. Regenerate: (cd config && ps2_recomp game.toml). It resolves TOML paths against the cwd, so run it from config/. Clear generated/ first when names change.
 4. Build for Windows: cmake --build game/build-win --target worms3d (mingw-w64 cross-compile; configure with -DCMAKE_TOOLCHAIN_FILE=$PWD/game/cmake/mingw-w64-x86_64.cmake, see that file).
-5. Deploy: tools/deploy-win.sh. Run: tools/run-win.sh [seconds] (native Windows process; console output comes back to WSL).
+5. Deploy: tools/deploy-win.sh. Run: tools/run-win.sh [seconds] (native Windows process; console output comes back to WSL). While it runs, tools/screenshot-win.sh [name] saves the game window to screenshots\ in the deploy folder.
 - game/build (Linux) exists only for gdb debugging; it needs tools/setup-host0.sh and is never run under WSLg without asking.
 
 ## Tools

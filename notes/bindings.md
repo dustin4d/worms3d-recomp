@@ -130,3 +130,16 @@ Found after boot run 8 spun in FUN_004f3e48's bind loop on 0x80000003. Heap clie
   exports SDRDRV/STREAM import ("unhandled import libsd:4"). game/host0/modules has lowercase copies of
   iso/MODULES made by tools/setup-host0.sh (copies: Windows cannot follow WSL symlinks); hostRoot points
   there ($WORMS3D_HOST0 overrides). Real LIBSD/SDRDRV/STREAM now load.
+- Main thread stack (override reserveMainThreadStack): crt0 calls SetupThread(gp, 0x01ff0000, 0x10000, ...), so
+  main's stack is the top 64 KB of RAM. The runtime carves interrupt/callback handler stacks downward from the top
+  of RAM as well, so the first handler ran on main's frame. Found on the first Windows run: the argument list in
+  main's frame (0x1ffff70, built by FUN_002804d8, published by FUN_00281ff0) was overwritten with a handler sp;
+  FUN_002492c0 then walked garbage entries, FUN_005202e8 (string release: refcount u16 at p-6) decremented stack
+  words and freed them via operator delete FUN_00384358 -> heap free FUN_0038fdc8, whose
+  memset(ptr, 0xDD, hdr-8) with hdr 0 became memset(..., -4) and flooded RAM. Fixed by reserving
+  0x01ff0000-0x02000000 with PS2Runtime::reserveAsyncCallbackStack() before anything else runs.
+
+## Boot log (Windows builds)
+- Win run 1: modules load, then memset(ptr, 0xDD, 0xFFFFFFFC) and a jump to 0xDDDDDDDD (stack collision above).
+- Win run 2 (stack fix): no errors for 75+ s; window "PS2-Recomp | SLUS_208.94" stays black
+  (screenshot: C:\Users\Dustin\worms3d-recomp\screenshots\boot-45s.png). Next: find what the EE is doing.

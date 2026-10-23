@@ -120,8 +120,24 @@ namespace
         std::cerr << "[worms3d] host0: " << paths.hostRoot.string() << std::endl;
     }
 
+    // crt0 calls SetupThread(gp, stack=0x01ff0000, size=0x10000, ...), so the main thread's stack is the top
+    // 64 KB of RAM (sp starts at 0x02000000). The runtime carves interrupt/callback handler stacks downward
+    // from the top of RAM too, so the first handler ran on main's frame and overwrote it (first symptom: the
+    // argument list in main's frame at 0x1ffff70 replaced by a handler sp, then null-string frees and
+    // memset(ptr, 0xDD, -4)). Reserve the main stack region first so handler stacks start below 0x01ff0000.
+    void reserveMainThreadStack(PS2Runtime &runtime)
+    {
+        constexpr uint32_t kMainStackBase = 0x01ff0000u;
+        // Returns the reserved block's stack top, or 0 on failure; later reservations start below kMainStackBase.
+        if (runtime.reserveAsyncCallbackStack(PS2_RAM_SIZE - kMainStackBase, 16u) == 0u)
+        {
+            std::cerr << "[worms3d] could not reserve the main thread stack from handler stacks" << std::endl;
+        }
+    }
+
     void applyWorms3dOverrides(PS2Runtime &runtime)
     {
+        reserveMainThreadStack(runtime);
         runtime.replaceFunction(0x004ed6a8u, consoleWrite);
         configureCdImage();
         configureHost0();
